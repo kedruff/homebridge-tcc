@@ -22,7 +22,10 @@
 
 var debug = require('debug')('tcc');
 var tcc = require('./lib/tcc.js');
-var Accessory, Service, Characteristic, UUIDGen, CommunityTypes;
+var Accessory, Service, Characteristic, UUIDGen, FakeGatoHistoryService;
+var os = require("os");
+var hostname = os.hostname();
+const moment = require('moment');
 
 var myAccessories = [];
 var session; // reuse the same login session
@@ -34,6 +37,7 @@ module.exports = function(homebridge) {
     Service = homebridge.hap.Service;
     Characteristic = homebridge.hap.Characteristic;
     UUIDGen = homebridge.hap.uuid;
+    FakeGatoHistoryService = require('fakegato-history')(homebridge);
 
     homebridge.registerPlatform("homebridge-tcc", "tcc", tccPlatform);
 }
@@ -98,23 +102,38 @@ tccPlatform.prototype = {
     }
 };
 
-function updateStatus(service, data) {
-    service.getCharacteristic(Characteristic.TargetTemperature)
+function updateStatus(accessory, data) {
+
+    accessory.thermostatService.getCharacteristic(Characteristic.TargetTemperature)
         .getValue();
-    service.getCharacteristic(Characteristic.CurrentTemperature)
+    accessory.thermostatService.getCharacteristic(Characteristic.CurrentTemperature)
         .getValue();
-    service.getCharacteristic(Characteristic.CurrentHeatingCoolingState)
+    accessory.thermostatService.getCharacteristic(Characteristic.CurrentHeatingCoolingState)
         .getValue();
-    service.getCharacteristic(Characteristic.TargetHeatingCoolingState)
+    accessory.thermostatService.getCharacteristic(Characteristic.TargetHeatingCoolingState)
         .getValue();
     if (data.latestData.uiData.IndoorHumiditySensorAvailable && data.latestData.uiData.IndoorHumiditySensorNotFault)
-        service.getCharacteristic(Characteristic.CurrentRelativeHumidity)
+        accessory.thermostatService.getCharacteristic(Characteristic.CurrentRelativeHumidity)
         .getValue();
     if (data.latestData.uiData.SwitchAutoAllowed) {
-        service.getCharacteristic(Characteristic.CoolingThresholdTemperature)
+        accessory.thermostatService.getCharacteristic(Characteristic.CoolingThresholdTemperature)
             .getValue();
-        service.getCharacteristic(Characteristic.HeatingThresholdTemperature)
+        accessory.thermostatService.getCharacteristic(Characteristic.HeatingThresholdTemperature)
             .getValue();
+    }
+
+    if (!(accessory.log_event_counter % 10)) {
+      accessory.loggingService.addEntry({
+        time: moment().unix(),
+        temp: roundInt(data.latestData.uiData.DispTemperature),
+        humidity: roundInt(data.latestData.uiData.IndoorHumidity)
+      });
+    }
+
+    if ( accessory.log_event_counter > 59 ) {
+      accessory.log_event_counter = 0;
+    } else {
+      accessory.log_event_counter += 1;
     }
 
 }
@@ -144,24 +163,15 @@ function updateValues(that) {
                 debug("Update Values", accessory.name, deviceData);
                 // Data is live
 
-                if (deviceData.deviceLive) {
-                    //                    that.log("updateValues: Device reachable", accessory.name);
-                    //                    accessory.newAccessory.updateReachability(true);
-                } else {
-                    that.log("updateValues: Device not reachable", accessory.name);
-                    //                    accessory.newAccessory.updateReachability(false);
-                }
-
                 if (!tcc.deepEquals(deviceData, accessory.device)) {
                     that.log("Change", accessory.name, tcc.diff(accessory.device, deviceData));
-                    accessory.device = deviceData;
-                    updateStatus(accessory.thermostatService, deviceData);
-
                 } else {
                     that.log("No change", accessory.name);
                 }
+                accessory.device = deviceData;
+                updateStatus(accessory, deviceData);
             }
-        });
+        }.bind(that));
     });
 }
 
@@ -183,6 +193,7 @@ function tccAccessory(log, name, deviceData, username, password, deviceID) {
     this.username = username;
     this.password = password;
     this.deviceID = deviceID;
+    this.log_event_counter = 0;
     //    return newAccessory;
 }
 
@@ -525,10 +536,14 @@ tccAccessory.prototype = {
         var informationService = new Service.AccessoryInformation();
 
         informationService
-            .setCharacteristic(Characteristic.Manufacturer, "Honeywell")
-            .setCharacteristic(Characteristic.SerialNumber, this.deviceID); // need to stringify the this.serial
+            .setCharacteristic(Characteristic.Manufacturer, "NorthernMan54")
+            .setCharacteristic(Characteristic.Model, "Homebridge-tcc")
+            .setCharacteristic(Characteristic.SerialNumber, hostname+"-"+this.deviceID); // need to stringify the this.serial
         // Thermostat Service
         this.thermostatService = new Service.Thermostat(this.name);
+
+        this.thermostatService.log = this.log;
+        this.loggingService = new FakeGatoHistoryService("weather", this);
 
         // Required Characteristics /////////////////////////////////////////////////////////////
         // this.addCharacteristic(Characteristic.CurrentHeatingCoolingState); READ
@@ -604,7 +619,11 @@ tccAccessory.prototype = {
             .getCharacteristic(Characteristic.Name)
             .on('get', this.getName.bind(this));
 
-        return [informationService, this.thermostatService];
+        return [informationService, this.thermostatService,this.loggingService];
 
     }
+}
+
+function roundInt(string) {
+  return Math.round(parseFloat(string) * 10) / 10;
 }
