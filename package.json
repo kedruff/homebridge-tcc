@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "debug": "^2.6.9",
-    "fakegato-history": "^0.3.5",
+    "fakegato-history": "simont77/fakegato-history#fakegato-storage",
     "lodash": "^2.4.2",
     "moment": "^2.20.1",
     "q": "^1.0.1",
