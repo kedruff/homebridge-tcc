@@ -435,7 +435,11 @@ tccAccessory.prototype = {
     }
 
     this.thermostatService.log = this.log;
-    this.loggingService = new FakeGatoHistoryService("thermo", this.thermostatService);
+
+    this.loggingService = new FakeGatoHistoryService("thermo", this.thermostatService,{
+      storage: 'googleDrive',
+      minutes: 1
+    });
 
     this.thermostatService.addCharacteristic(CustomCharacteristic.ValvePosition);
     this.thermostatService.addCharacteristic(CustomCharacteristic.ProgramCommand);
